@@ -1,0 +1,449 @@
+# Mindful Maze Enhanced Game
+
+import pygame
+import sys
+import random
+import time
+import math
+
+# Initialize Pygame
+pygame.init()
+
+# Screen dimensions
+WIDTH, HEIGHT = 800, 600  # Default dimensions
+SCREEN = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Mystical Consciousness Quest")
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+DEEP_PURPLE = (48, 25, 52)
+MYSTIC_BLUE = (65, 105, 225)
+ETHEREAL_GOLD = (218, 165, 32)
+COSMIC_GREEN = (0, 100, 0)
+ASTRAL_RED = (178, 34, 34)
+
+# Fonts
+FONT = pygame.font.Font(None, 24)
+LARGE_FONT = pygame.font.Font(None, 32)
+TITLE_FONT = pygame.font.Font(None, 48)
+
+# # Sounds
+# pygame.mixer.init()
+# TOKEN_SOUND = pygame.mixer.Sound('assets/token.wav')
+# LEVEL_UP_SOUND = pygame.mixer.Sound('assets/level_up.wav')
+# GAME_OVER_SOUND = pygame.mixer.Sound('assets/game_over.wav')
+
+# Clock
+CLOCK = pygame.time.Clock()
+FPS = 60
+
+# Maze variables
+CELL_SIZE = 40
+COLS, ROWS = WIDTH // CELL_SIZE, HEIGHT // CELL_SIZE
+
+# Player variables
+PLAYER_SPEED = 1  # Increased player speed for smoother movement
+PLAYER_SIZE = CELL_SIZE // 4  # Decreased player size
+PLAYER_COLOR = ASTRAL_RED
+
+# Collectible variables
+TOKEN_COLOR = ETHEREAL_GOLD
+TOKEN_SIZE = CELL_SIZE // 5
+TOTAL_TOKENS = 5  # Tokens per level
+
+# Level settings
+MAX_LEVEL = 10
+LEVEL_INCREMENT = 1
+
+# Messaging Types
+DEFAULT_MESSAGING = 'Mindfulness'
+MESSAGE_OPTIONS = ['Mindfulness', 'Motivation', 'Positivity']
+
+# Gameplay Metrics
+class Metrics:
+    def __init__(self):
+        self.start_time = None
+        self.end_time = None
+        self.moves_made = 0
+        self.tokens_collected = 0
+
+metrics = Metrics()
+
+class Cell:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.walls = {'top': True, 'right': True, 'bottom': True, 'left': True}
+        self.visited = False
+
+    def draw(self, surface):
+        x = self.x * CELL_SIZE
+        y = self.y * CELL_SIZE
+        # Draw cell background with a gradient
+        for i in range(CELL_SIZE):
+            color = [
+                max(0, c - i // 2) for c in MYSTIC_BLUE
+            ]
+            pygame.draw.line(surface, color, (x, y + i), (x + CELL_SIZE, y + i))
+        # Draw walls with a glowing effect
+        if self.walls['top']:
+            pygame.draw.line(surface, ETHEREAL_GOLD, (x, y), (x + CELL_SIZE, y), 2)
+        if self.walls['right']:
+            pygame.draw.line(surface, ETHEREAL_GOLD, (x + CELL_SIZE, y), (x + CELL_SIZE, y + CELL_SIZE), 2)
+        if self.walls['bottom']:
+            pygame.draw.line(surface, ETHEREAL_GOLD, (x + CELL_SIZE, y + CELL_SIZE), (x, y + CELL_SIZE), 2)
+        if self.walls['left']:
+            pygame.draw.line(surface, ETHEREAL_GOLD, (x, y + CELL_SIZE), (x, y), 2)
+
+    def check_neighbors(self, grid):
+        neighbors = []
+        directions = [('top', (self.x, self.y - 1)),
+                      ('right', (self.x + 1, self.y)),
+                      ('bottom', (self.x, self.y + 1)),
+                      ('left', (self.x - 1, self.y))]
+
+        for direction, (nx, ny) in directions:
+            idx = get_index(nx, ny)
+            if idx is not None and not grid[idx].visited:
+                neighbors.append(grid[idx])
+
+        if neighbors:
+            return random.choice(neighbors)
+        return None
+
+class Collectible:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.collected = False
+        self.angle = 0
+
+    def draw(self, surface):
+        if not self.collected:
+            center_x = self.x * CELL_SIZE + CELL_SIZE // 2
+            center_y = self.y * CELL_SIZE + CELL_SIZE // 2
+            self.angle += 0.1
+            size = int(TOKEN_SIZE + math.sin(self.angle) * 2)
+            pygame.draw.circle(surface, TOKEN_COLOR, (center_x, center_y), size)
+            inner_size = max(1, size - 2)
+            pygame.draw.circle(surface, WHITE, (center_x, center_y), inner_size)
+
+def get_index(x, y):
+    if 0 <= x < COLS and 0 <= y < ROWS:
+        return x + y * COLS
+    return None
+
+def remove_walls(current, next_cell):
+    dx = current.x - next_cell.x
+    dy = current.y - next_cell.y
+    if dx == 1:
+        current.walls['left'] = False
+        next_cell.walls['right'] = False
+    elif dx == -1:
+        current.walls['right'] = False
+        next_cell.walls['left'] = False
+    if dy == 1:
+        current.walls['top'] = False
+        next_cell.walls['bottom'] = False
+    elif dy == -1:
+        current.walls['bottom'] = False
+        next_cell.walls['top'] = False
+
+def generate_maze(grid):
+    stack = []
+    current = grid[0]
+    current.visited = True
+
+    while True:
+        next_cell = current.check_neighbors(grid)
+        if next_cell:
+            next_cell.visited = True
+            stack.append(current)
+            remove_walls(current, next_cell)
+            current = next_cell
+        elif stack:
+            current = stack.pop()
+        else:
+            break
+
+def reset_maze(grid, collectibles, level):
+    grid.clear()
+    collectibles.clear()
+    metrics.moves_made = 0
+    metrics.tokens_collected = 0
+    for y in range(ROWS):
+        for x in range(COLS):
+            grid.append(Cell(x, y))
+    generate_maze(grid)
+    place_collectibles(collectibles, level)
+    metrics.start_time = time.time()
+
+def place_collectibles(collectibles, level):
+    positions = set()
+    while len(collectibles) < TOTAL_TOKENS:
+        x = random.randint(0, COLS - 1)
+        y = random.randint(0, ROWS - 1)
+        if (x, y) not in positions and (x, y) not in [(0, 0), (COLS - 1, ROWS - 1)]:
+            collectibles.append(Collectible(x, y))
+            positions.add((x, y))
+
+def show_message(surface, text, font, color=ETHEREAL_GOLD, duration=None):
+    overlay = pygame.Surface((WIDTH, HEIGHT))
+    overlay.set_alpha(220)
+    overlay.fill(DEEP_PURPLE)
+    surface.blit(overlay, (0, 0))
+
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        message = font.render(line, True, color)
+        rect = message.get_rect(center=(WIDTH // 2, HEIGHT // 2 - len(lines)*15 + i * 30))
+        surface.blit(message, rect)
+    pygame.display.flip()
+
+    if duration:
+        pygame.time.delay(duration)
+        return
+
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                waiting = False
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+def move_player(player, dx, dy, grid):
+    moved = False
+
+    # Horizontal Movement
+    if dx != 0:
+        new_x = player['x'] + dx
+        if 0 <= new_x < COLS:
+            current_idx = get_index(int(player['x']), int(player['y']))
+            current_cell = grid[current_idx]
+            if dx > 0 and not current_cell.walls['right']:
+                player['x'] = new_x
+                moved = True
+            elif dx < 0 and not current_cell.walls['left']:
+                player['x'] = new_x
+                moved = True
+
+    # Vertical Movement
+    if dy != 0:
+        new_y = player['y'] + dy
+        if 0 <= new_y < ROWS:
+            current_idx = get_index(int(player['x']), int(player['y']))
+            current_cell = grid[current_idx]
+            if dy > 0 and not current_cell.walls['bottom']:
+                player['y'] = new_y
+                moved = True
+            elif dy < 0 and not current_cell.walls['top']:
+                player['y'] = new_y
+                moved = True
+
+    if moved:
+        metrics.moves_made += 1
+
+    return moved
+
+def check_collectibles(player, collectibles, messaging_type):
+    player_cell = (int(player['x']), int(player['y']))
+    for item in collectibles:
+        if not item.collected and (item.x, item.y) == player_cell:
+            item.collected = True
+            metrics.tokens_collected += 1
+            # TOKEN_SOUND.play()
+            show_message(SCREEN, "You absorbed a cosmic token!", LARGE_FONT)
+            quotes = get_quotes(messaging_type)
+            show_message(SCREEN, random.choice(quotes), FONT, duration=2000)
+            return True
+    return False
+
+def provide_insight(level, duration, moves, collected_tokens, messaging_type):
+    speed = moves / duration if duration > 0 else moves
+    if speed < 1:
+        insight = "Your journey reflects the patience of a cosmic sage."
+    elif speed < 2:
+        insight = "You move with the grace of celestial harmony."
+    else:
+        insight = "Your spirit dances with the energy of a thousand stars."
+
+    if collected_tokens == TOTAL_TOKENS:
+        collection_insight = "Gathering all tokens shows your attunement to the universe."
+    else:
+        collection_insight = "The tokens you missed are lessons yet to be learned."
+
+    # LEVEL_UP_SOUND.play()
+    show_message(SCREEN, f"Dimension {level} Transcended!\n{insight}\n{collection_insight}", LARGE_FONT, duration=3000)
+
+def get_quotes(messaging_type):
+    quotes = {
+        "Motivation": [
+            "In the dance of duality,\nyou are both the dancer\nand the dance.",
+            "Every challenge is an opportunity\nto transcend the illusion\nof separation.",
+            "Your true strength lies\nin recognizing the unity\nof all things.",
+            "Embrace both light and shadow,\nfor they are one\nin the grand tapestry.",
+            "In letting go of the ego,\nyou become one with\nthe infinite potential."
+        ],
+
+        "Positivity": [
+            "Non-duality reveals that\nthe observer and the observed\nare one.",
+            "In the silence between thoughts,\nthe truth of oneness\nemerges.",
+            "The self and the universe\nare not two, but a singular\nexpression of being.",
+            "Beyond the veil of separation\nlies the eternal truth\nof unity.",
+            "In recognizing non-duality,\nyou dissolve the boundaries\nof limitation."
+        ],
+        "Mindfulness": [
+            "Be present to the moment,\nwhere duality dissolves\ninto oneness.",
+            "Observe your thoughts\nwithout judgment, seeing\nthe unity in all experiences.",
+            "In mindful awareness,\nthe illusion of separateness\nfades away.",
+            "Each breath is a reminder\nof your connection to\nthe whole of existence.",
+            "Mindfulness reveals\nthe interconnectedness\nof all phenomena."
+        ]
+    }
+    return quotes.get(messaging_type, quotes[DEFAULT_MESSAGING])
+
+def draw_maze(surface, grid):
+    for cell in grid:
+        cell.draw(surface)
+
+def draw_player(surface, player):
+    x = int(player['x'] * CELL_SIZE + CELL_SIZE // 2)
+    y = int(player['y'] * CELL_SIZE + CELL_SIZE // 2)
+    pygame.draw.circle(surface, PLAYER_COLOR, (x, y), PLAYER_SIZE)
+    # Glowing effect
+    for i in range(3):
+        pygame.draw.circle(surface, [min(255, c + 50) for c in PLAYER_COLOR], (x, y), PLAYER_SIZE - i, 1)
+
+def draw_goal(surface):
+    x = (COLS - 1) * CELL_SIZE + CELL_SIZE // 2
+    y = (ROWS - 1) * CELL_SIZE + CELL_SIZE // 2
+    pulsate = int(math.sin(pygame.time.get_ticks() * 0.02) * 3)
+    size = CELL_SIZE // 4 + pulsate
+    pygame.draw.circle(surface, COSMIC_GREEN, (x, y), size)
+    pygame.draw.circle(surface, [min(255, c + 50) for c in COSMIC_GREEN], (x, y), CELL_SIZE // 4, 2)
+
+def display_info(surface, level, tokens_collected, total):
+    info_text = FONT.render(f"Dimension: {level}   Cosmic Tokens: {tokens_collected}/{total}", True, ETHEREAL_GOLD)
+    surface.blit(info_text, (10, 10))
+
+def main_menu():
+    global DEFAULT_MESSAGING
+    selected = 0
+    menu = True
+
+    while menu:
+        SCREEN.fill(DEEP_PURPLE)
+        title = TITLE_FONT.render("Mystical Consciousness Quest", True, ETHEREAL_GOLD)
+        title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 4))
+        SCREEN.blit(title, title_rect)
+
+        prompt = LARGE_FONT.render("Choose Your Path of Enlightenment:", True, WHITE)
+        prompt_rect = prompt.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+        SCREEN.blit(prompt, prompt_rect)
+
+        for i, option in enumerate(MESSAGE_OPTIONS):
+            color = ETHEREAL_GOLD if i == selected else WHITE
+            option_text = FONT.render(option, True, color)
+            option_rect = option_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + i * 40))
+            SCREEN.blit(option_text, option_rect)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP and selected > 0:
+                    selected -= 1
+                elif event.key == pygame.K_DOWN and selected < len(MESSAGE_OPTIONS) - 1:
+                    selected += 1
+                elif event.key == pygame.K_RETURN:
+                    DEFAULT_MESSAGING = MESSAGE_OPTIONS[selected]
+                    menu = False
+                elif event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+
+def game_loop(grid, collectibles, player, level, messaging_type):
+    global metrics
+    running = True
+
+    while running:
+        dt = CLOCK.tick(FPS) / 1000  # Delta time in seconds
+        SCREEN.fill(DEEP_PURPLE)
+        draw_maze(SCREEN, grid)
+        draw_goal(SCREEN)
+        for item in collectibles:
+            item.draw(SCREEN)
+        draw_player(SCREEN, player)
+
+        keys = pygame.key.get_pressed()
+        moved = False
+        dx, dy = 0, 0
+
+        if keys[pygame.K_LEFT]:
+            dx = -1  # Move one cell to the left
+        if keys[pygame.K_RIGHT]:
+            dx = 1   # Move one cell to the right
+        if keys[pygame.K_UP]:
+            dy = -1  # Move one cell up
+        if keys[pygame.K_DOWN]:
+            dy = 1   # Move one cell down
+
+        if dx != 0 or dy != 0:
+            moved = move_player(player, dx, dy, grid)
+
+        # Snap player position to grid
+        player['x'] = round(player['x'])
+        player['y'] = round(player['y'])
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+
+        if moved:
+            collected = check_collectibles(player, collectibles, messaging_type)
+            # Check if player reached goal
+            if (int(player['x']), int(player['y'])) == (COLS - 1, ROWS - 1):
+                if metrics.tokens_collected == TOTAL_TOKENS:
+                    metrics.end_time = time.time()
+                    duration = metrics.end_time - metrics.start_time
+                    provide_insight(level, duration, metrics.moves_made, metrics.tokens_collected, messaging_type)
+                    # LEVEL_UP_SOUND.play()
+                    level += LEVEL_INCREMENT
+                    if level > MAX_LEVEL:
+                        show_message(SCREEN, "Enlightenment Achieved!\nYou've mastered the Mystical Consciousness Quest!", TITLE_FONT)
+                        running = False
+                    else:
+                        reset_maze(grid, collectibles, level)
+                else:
+                    # GAME_OVER_SOUND.play()
+                    show_message(SCREEN, "Gather all cosmic tokens before transcending!", LARGE_FONT)
+
+        display_info(SCREEN, level, metrics.tokens_collected, TOTAL_TOKENS)
+        pygame.display.flip()
+
+def main():
+    grid = []
+    collectibles = []
+    player = {'x': 0, 'y': 0, 'pixel_x': 0, 'pixel_y': 0}
+    level = 1
+
+    main_menu()
+    reset_maze(grid, collectibles, level)
+    show_message(SCREEN, f"Welcome to Mindful Maze!\nCollect all tokens and reach the goal.\nMessaging: {DEFAULT_MESSAGING}", LARGE_FONT, duration=3000)
+    game_loop(grid, collectibles, player, level, DEFAULT_MESSAGING)
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+        main()
